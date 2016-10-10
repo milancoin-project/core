@@ -276,6 +276,8 @@ class DAV extends Common {
 					throw new NotFound('Not found on remote server "' . $path . '"', 0, $e);
 				}
 				$this->convertException($e, $path);
+			} catch (\Exception $e) {
+				$this->convertException($e, $path);
 			}
 		} else {
 			$response = $cachedResponse;
