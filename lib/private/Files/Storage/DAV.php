@@ -225,13 +225,8 @@ class DAV extends Common {
 				$content[] = $file;
 			}
 			return IteratorDirectory::wrap($content);
-		} catch (ClientHttpException $e) {
-			if ($e->getHttpStatus() === 404) {
-				$this->statCache->clear($path . '/');
-				$this->statCache->set($path, false);
-				return false;
-			}
-			$this->convertException($e, $path);
+		} catch (NotFound $e) {
+			return false;
 		} catch (\Exception $e) {
 			$this->convertException($e, $path);
 		}
@@ -255,7 +250,7 @@ class DAV extends Common {
 		$cachedResponse = $this->statCache->get($path);
 		if ($cachedResponse === false) {
 			// we know it didn't exist
-			throw new NotFound();
+			throw new NotFound('Not found on remote server "' . $path . '"', 0, $e);
 		}
 		// we either don't know it, or we know it exists but need more details
 		if (is_null($cachedResponse) || $cachedResponse === true) {
@@ -274,11 +269,13 @@ class DAV extends Common {
 					]
 				);
 				$this->statCache->set($path, $response);
-			} catch (NotFound $e) {
-				// remember that this path did not exist
-				$this->statCache->clear($path . '/');
-				$this->statCache->set($path, false);
-				throw $e;
+			} catch (ClientHttpException $e) {
+				if ($e->getHttpStatus() === 404) {
+					$this->statCache->clear($path . '/');
+					$this->statCache->set($path, false);
+					throw new NotFound('Not found on remote server "' . $path . '"', 0, $e);
+				}
+				$this->convertException($e, $path);
 			}
 		} else {
 			$response = $cachedResponse;
@@ -296,11 +293,8 @@ class DAV extends Common {
 				$responseType = $response["{DAV:}resourcetype"]->getValue();
 			}
 			return (count($responseType) > 0 and $responseType[0] == "{DAV:}collection") ? 'dir' : 'file';
-		} catch (ClientHttpException $e) {
-			if ($e->getHttpStatus() === 404) {
-				return false;
-			}
-			$this->convertException($e, $path);
+		} catch (NotFound $e) {
+			return false;
 		} catch (\Exception $e) {
 			$this->convertException($e, $path);
 		}
@@ -321,11 +315,8 @@ class DAV extends Common {
 			// need to get from server
 			$this->propfind($path);
 			return true; //no 404 exception
-		} catch (ClientHttpException $e) {
-			if ($e->getHttpStatus() === 404) {
-				return false;
-			}
-			$this->convertException($e, $path);
+		} catch (NotFound $e) {
+			return false;
 		} catch (\Exception $e) {
 			$this->convertException($e, $path);
 		}
@@ -463,6 +454,8 @@ class DAV extends Common {
 						return false;
 					}
 				}
+			} catch (NotFound $e) {
+				return false;
 			} catch (ClientHttpException $e) {
 				if ($e->getHttpStatus() === 501) {
 					return false;
@@ -582,11 +575,8 @@ class DAV extends Common {
 				'mtime' => strtotime($response['{DAV:}getlastmodified']),
 				'size' => (int)isset($response['{DAV:}getcontentlength']) ? $response['{DAV:}getcontentlength'] : 0,
 			];
-		} catch (ClientHttpException $e) {
-			if ($e->getHttpStatus() === 404) {
-				return [];
-			}
-			$this->convertException($e, $path);
+		} catch (NotFound $e) {
+			return [];
 		} catch (\Exception $e) {
 			$this->convertException($e, $path);
 		}
@@ -610,11 +600,8 @@ class DAV extends Common {
 			} else {
 				return false;
 			}
-		} catch (ClientHttpException $e) {
-			if ($e->getHttpStatus() === 404) {
-				return false;
-			}
-			$this->convertException($e, $path);
+		} catch (NotFound $e) {
+			return false;
 		} catch (\Exception $e) {
 			$this->convertException($e, $path);
 		}
@@ -704,7 +691,11 @@ class DAV extends Common {
 	public function getPermissions($path) {
 		$this->init();
 		$path = $this->cleanPath($path);
-		$response = $this->propfind($path);
+		try {
+			$response = $this->propfind($path);
+		} catch (NotFound $e) {
+			return 0;
+		}
 		if (isset($response['{http://owncloud.org/ns}permissions'])) {
 			return $this->parsePermissions($response['{http://owncloud.org/ns}permissions']);
 		} else if ($this->is_dir($path)) {
@@ -785,8 +776,14 @@ class DAV extends Common {
 				$remoteMtime = strtotime($response['{DAV:}getlastmodified']);
 				return $remoteMtime > $time;
 			}
+		} catch (NotFound $e) {
+			if ($path === '') {
+				// if root is gone it means the storage is not available
+				throw new StorageNotAvailableException(get_class($e) . ': ' . $e->getMessage());
+			}
+			return false;
 		} catch (ClientHttpException $e) {
-			if ($e->getHttpStatus() === 404 || $e->getHttpStatus() === 405) {
+			if ($e->getHttpStatus() === 405) {
 				if ($path === '') {
 					// if root is gone it means the storage is not available
 					throw new StorageNotAvailableException(get_class($e) . ': ' . $e->getMessage());
