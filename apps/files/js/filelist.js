@@ -1707,6 +1707,7 @@
 				urlSpec = {};
 			ready(iconURL); // set mimeicon URL
 
+			if (mime.indexOf("text") == 0 || mime.indexOf("image") == 0){
 			urlSpec.file = OCA.Files.Files.fixPath(path);
 			if (options.x) {
 				urlSpec.x = options.x;
@@ -1745,6 +1746,7 @@
 				img.onerror = options.error;
 			}
 			img.src = previewURL;
+			}
 		},
 
 		/**
